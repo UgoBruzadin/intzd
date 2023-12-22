@@ -2,6 +2,8 @@ import sys
 import numpy as np # this goes into the vocaliser file
 import torch  # sane
 from scipy.io.wavfile import write #same
+
+
 #import soundfile as sf # ogg codec crashes on long files
 
 # set up tachotron and waveglow from torchub
@@ -33,12 +35,24 @@ def vocalise(subsentences, outputFile, outputFormat, speed, intermediaryFormat, 
                             initial=currentSubsentenceIndex,
                             total=len(subsentences)):
             # preprocessing
-            sequence = np.array(tacotron2.text_to_sequence(text, ['english_cleaners']))[None, :]
+            from tacotron2.text import text_to_sequence
+            sequence = np.array(text_to_sequence(text, ['english_cleaners']))[None, :]
             sequence = torch.from_numpy(sequence).to(device='cuda', dtype=torch.int64)
-
+            #print(sequence)
+            input_lengths = torch.tensor([sequence.size(0)], device='cuda')
+            #print("Shape of input lengths:", input_lengths)
+            
             # run the models
             with torch.no_grad():
-                _, mel, _, _ = tacotron2.infer(sequence)
+                mel, a, b = tacotron2.infer(sequence,input_lengths)
+
+                #print("shape of", a)
+                #print("shape of", b)
+                #print("Shape of mel tensor:", mel)
+
+                # Ensure mel tensor has the expected dimensions
+                #mel = mel.unsqueeze(1)  # Add a channel dimension
+
                 audio = waveglow.infer(mel)
             audio_numpy = np.concatenate((audio_numpy, audio[0].data.cpu().numpy()))
 

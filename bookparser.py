@@ -8,7 +8,7 @@ def getChapters(inputFolder):
 
 # converts .xhtml files to plain text
 def parseChapter(chapter):
-    with open(chapter) as html:
+    with open(chapter,encoding="utf8") as html:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, features="html.parser")
 

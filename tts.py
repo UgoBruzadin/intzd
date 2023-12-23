@@ -18,43 +18,55 @@ def initializeTTSEngine():
     waveglow = waveglow.remove_weightnorm(waveglow)
     waveglow = waveglow.to('cuda')
     waveglow.eval()
+
     return tacotron2, waveglow
 
 # just stuff i found here https://pytorch.org/hub/nvidia_deeplearningexamples_tacotron2/
 # This does the actual text to speech
 def vocalise(subsentences, outputFile, outputFormat, speed, intermediaryFormat, tacotron2, waveglow):
     print("[+] Starting TTS on "+outputFile.split("/")[-1])
+
+    utils = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_tts_utils')
+            
     rate = 22050
     # load a saved state if any
     audio_numpy, currentSubsentenceIndex = loadVocaliseState(outputFile)
     try:# this is here so we can save before Ctrl+C
         # process each sentence as tacotron2 -> waveglow -> whatever
         from tqdm import tqdm
+        from librosa.util import normalize
         for text in tqdm(subsentences[currentSubsentenceIndex:],
                             dynamic_ncols=True,
                             initial=currentSubsentenceIndex,
                             total=len(subsentences)):
             # preprocessing
-            from tacotron2.text import text_to_sequence
-            sequence = np.array(text_to_sequence(text, ['english_cleaners']))[None, :]
-            sequence = torch.from_numpy(sequence).to(device='cuda', dtype=torch.int64)
+            #text = join(text,'.')
+            sequence, lengths = utils.prepare_input_sequence([text])
+            #from tacotron2.text import text_to_sequence
+            #print(text)
+            #sequence = np.array(text_to_sequence(text, ['english_cleaners']))[None, :]
+            #sequence = torch.from_numpy(sequence).to(device='cuda', dtype=torch.int64)
             #print(sequence)
             input_lengths = torch.tensor([sequence.size(0)], device='cuda')
             #print("Shape of input lengths:", input_lengths)
             
             # run the models
             with torch.no_grad():
-                mel, a, b = tacotron2.infer(sequence,input_lengths)
-
-                #print("shape of", a)
+                mel, alignment_matrix, gate_output = tacotron2.infer(sequence,lengths)
+                
+                # Normalize the audio data
+                
+                #print("shape of", mel)
                 #print("shape of", b)
                 #print("Shape of mel tensor:", mel)
 
                 # Ensure mel tensor has the expected dimensions
                 #mel = mel.unsqueeze(1)  # Add a channel dimension
-
+                #plot_mel_alignment_gate(mel.cpu(), alignment_matrix.cpu(), gate_output.cpu())
                 audio = waveglow.infer(mel)
             audio_numpy = np.concatenate((audio_numpy, audio[0].data.cpu().numpy()))
+            #print("Min value of audio_numpy:", np.min(audio_numpy))
+            #print("Max value of audio_numpy:", np.max(audio_numpy))
 
             # save current position in case TTS is interrupted
             currentSubsentenceIndex = currentSubsentenceIndex + 1
@@ -132,3 +144,62 @@ def convertFormat(sourceFile, format, speed):
     print("[+] Converted "+ sourceFile+ " ("+str(round(sourceSize/1024**2,2))+"MB) to "+
             os.path.splitext(sourceFile)[0]+format+" ("+str(round(convertedSize/1024**2,2))+
             "MB) and removed source file" )
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+def plot_mel_spectrogram(mel_spectrogram):
+    plt.imshow(np.transpose(mel_spectrogram), cmap='viridis', origin='lower', aspect='auto')
+    plt.xlabel('Time')
+    plt.ylabel('Mel Bin')
+    plt.title('Mel Spectrogram')
+    plt.colorbar()
+    plt.show()
+
+# Example usage:
+# Replace `mel_spectrogram_data` with your actual mel spectrogram data
+#mel_spectrogram_data = np.random.rand(128, 100)  # Example data
+#plot_mel_spectrogram(mel_spectrogram_data)
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+def plot_mel_alignment_gate(mel, alignment_matrix, gate_output):
+    plt.figure(figsize=(10, 8))
+
+    # Plot Mel Spectrogram
+    plt.subplot(3, 1, 1)
+    plt.imshow(np.transpose(mel), cmap='viridis', origin='lower', aspect='auto')
+    plt.title('Mel Spectrogram')
+    plt.xlabel('Time')
+    plt.ylabel('Mel Bin')
+    plt.colorbar()
+
+    # Plot Alignment Matrix
+    plt.subplot(3, 1, 2)
+    plt.imshow(np.transpose(alignment_matrix), cmap='viridis', origin='lower', aspect='auto')
+    plt.title('Alignment Matrix')
+    plt.xlabel('Time (Mel Spectrogram)')
+    plt.ylabel('Time (Input Text)')
+    plt.colorbar()
+
+    # Plot Gate Output
+    plt.subplot(3, 1, 3)
+    plt.plot(gate_output, label='Gate Output')
+    plt.title('Gate Output')
+    plt.xlabel('Time (Mel Spectrogram)')
+    plt.ylabel('Gate Value')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+# Example usage:
+# Replace `mel_data`, `alignment_data`, and `gate_data` with your actual data
+#mel_data = np.random.rand(128, 100)  # Example mel spectrogram data
+#alignment_data = np.random.rand(100, 50)  # Example alignment matrix data
+#gate_data = np.random.rand(100)  # Example gate output data
+
+#plot_mel_alignment_gate(mel_data, alignment_data, gate_data)
